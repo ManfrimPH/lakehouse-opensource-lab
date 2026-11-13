@@ -1,0 +1,28 @@
+name: 'lakehouse_opensource'
+version: '1.0.0'
+config-version: 2
+
+profile: 'lakehouse_opensource'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+# Mantém logs e artefatos compilados fora da árvore de código do VS Code
+target-path: "/tmp/dbt_target"
+log-path: "/tmp/dbt_logs"
+
+clean-targets:
+  - "/tmp/dbt_target"
+  - "dbt_packages"
+
+models:
+  lakehouse_opensource:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table

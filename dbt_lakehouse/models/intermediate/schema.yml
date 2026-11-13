@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: int_clientes_metricas
+    description: "Intermediate: Limpeza de strings, cálculo de LTV/Ticket Médio e geração de id_dim_clientes (MD5)"
+
+  - name: int_pedidos_enriquecidos
+    description: "Intermediate: Limpeza, join entre pedidos e pagamentos, cálculo de receita líquida e geração de chave/FK MD5"
+
+  - name: int_zonas_tratadas
+    description: "Intermediate: Higienização das 265 zonas de NY, métricas de demanda e geração de id_dim_zonas (MD5)"
+
+  - name: int_corridas_tratadas
+    description: "Intermediate: Tratamento completo das corridas NYC TLC (saneamento, km, velocidade, turno, rotas e chaves MD5)"

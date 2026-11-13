@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: mart_faturamento_diario
+    description: "Mart 03: Cubo de faturamento diário (PK MD5: chave | FK MD5: id_dim_clientes)"
+    columns:
+      - name: chave
+        description: "PK MD5 composta do grão (data_ref | id_dim_clientes | forma_pagamento)"
+        tests:
+          - unique
+          - not_null
+      - name: id_dim_clientes
+        description: "FK MD5 referenciando dim_clientes.id_dim_clientes"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_clientes')
+              field: id_dim_clientes
+      - name: data_ref
+        tests:
+          - not_null
+      - name: qtd_pedidos
+        tests:
+          - not_null
+      - name: total_vendido
+        tests:
+          - not_null
+      - name: receita_liquida_pos_taxa
+        tests:
+          - not_null

@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: raw
+    description: "Camada Raw materializada a partir dos arquivos .parquet brutos armazenados no MinIO S3 (s3://lakehouse/landing_parquet/)"
+    schema: "{{ env_var('DBT_RAW_SCHEMA', 'raw') }}"
+    tables:
+      - name: raw_clientes
+        description: "Tabela bruta de clientes carregada do arquivo s3://lakehouse/landing_parquet/clientes.parquet"
+      - name: raw_pedidos
+        description: "Tabela bruta de pedidos carregada do arquivo s3://lakehouse/landing_parquet/pedidos.parquet"
+      - name: raw_pagamentos
+        description: "Tabela bruta de pagamentos carregada do arquivo s3://lakehouse/landing_parquet/pagamentos.parquet"
+      - name: raw_taxi_zones
+        description: "Tabela bruta pública oficial da NYC TLC (265 zonas de Nova York) carregada de s3://lakehouse/landing_parquet/taxi_zones.parquet"
+      - name: raw_yellow_tripdata
+        description: "Tabela bruta pública oficial da NYC TLC (15.000 corridas reais) carregada de s3://lakehouse/landing_parquet/yellow_tripdata.parquet"

@@ -1,0 +1,27 @@
+lakehouse_opensource:
+  target: dev
+  outputs:
+    # Target principal para execução rápida de dbt seed / dbt build / dbt test / dbt docs
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', 'postgres') }}"
+      user: "{{ env_var('POSTGRES_USER', 'lakehouse') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'lakehouse123') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5432') | as_number }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'lakehouse_meta') }}"
+      schema: "{{ env_var('DBT_SCHEMA', 'lakehouse_main') }}"
+      threads: 4
+
+    # Target Dremio + Project Nessie (Apache Iceberg sobre S3/MinIO)
+    dremio_nessie:
+      type: dremio
+      software_host: "{{ env_var('DREMIO_HOST', 'dremio') }}"
+      port: 9047
+      user: "{{ env_var('DREMIO_USER', 'admin') }}"
+      password: "{{ env_var('DREMIO_PASSWORD', 'Admin1234!') }}"
+      use_ssl: false
+      object_storage_source: nessie
+      object_storage_path: vendas
+      dremio_space: business
+      dremio_space_folder: marts
+      threads: 4
