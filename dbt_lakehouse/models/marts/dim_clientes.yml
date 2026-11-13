@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: dim_clientes
+    description: "Mart 01: Dimensão corporativa de clientes com PK MD5 (id_dim_clientes)"
+    columns:
+      - name: id_dim_clientes
+        description: "PK MD5 da dimensão de clientes"
+        tests:
+          - unique
+          - not_null
+      - name: nome_cliente
+        tests:
+          - not_null
+      - name: segmento
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['ENTERPRISE', 'MID_MARKET', 'SMB']
+      - name: uf
+        tests:
+          - not_null
+      - name: classificacao_cliente
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['TIER_A_VIP', 'TIER_B_GROWTH', 'TIER_C_STANDARD']
+      - name: ltv_cliente
+        tests:
+          - not_null

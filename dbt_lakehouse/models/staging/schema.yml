@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: stg_clientes
+    description: "Staging espelho 1:1 (sem tratamentos) de clientes a partir do Parquet da Raw"
+
+  - name: stg_pedidos
+    description: "Staging espelho 1:1 (sem tratamentos) de pedidos a partir do Parquet da Raw"
+
+  - name: stg_pagamentos
+    description: "Staging espelho 1:1 (sem tratamentos) de pagamentos a partir do Parquet da Raw"
+
+  - name: stg_zonas
+    description: "Staging espelho 1:1 (sem tratamentos) das 265 zonas de táxi de Nova York (NYC TLC)"
+
+  - name: stg_corridas
+    description: "Staging espelho 1:1 (sem tratamentos) das corridas reais de táxi de Nova York (NYC TLC)"
