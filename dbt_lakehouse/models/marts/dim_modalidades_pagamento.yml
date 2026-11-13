@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: dim_modalidades_pagamento
+    description: "Mart Mobilidade Urbana: Dimensão de modalidades de pagamento com PK MD5 (id_dim_modalidades_pagamento)"
+    columns:
+      - name: id_dim_modalidades_pagamento
+        description: "PK MD5 da modalidade de pagamento"
+        tests:
+          - unique
+          - not_null
+      - name: descricao_pagamento
+        description: "Descrição oficial do meio de pagamento"
+        tests:
+          - not_null
+      - name: categoria_recebimento
+        description: "Categoria de rastreabilidade do pagamento"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['DIGITAL_RASTREAVEL', 'FISICO_OU_ISENTO']

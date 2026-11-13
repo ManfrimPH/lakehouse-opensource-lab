@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: mart_mobilidade_diaria_zonas
+    description: "Mart Mobilidade Urbana: Cubo Diário por Zona e Turno (PK MD5: chave | FK MD5: id_dim_zonas)"
+    columns:
+      - name: chave
+        description: "PK MD5 composta do grão diário (data_ref | id_dim_zonas | turno_viagem)"
+        tests:
+          - unique
+          - not_null
+      - name: id_dim_zonas
+        description: "FK MD5 para dim_zonas"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_zonas')
+              field: id_dim_zonas
+      - name: data_ref
+        tests:
+          - not_null
+      - name: turno_viagem
+        tests:
+          - not_null
+      - name: qtd_corridas
+        tests:
+          - not_null
+      - name: faturamento_bruto_usd
+        tests:
+          - not_null

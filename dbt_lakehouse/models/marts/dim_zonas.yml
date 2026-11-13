@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: dim_zonas
+    description: "Mart Mobilidade Urbana: Dimensão das 265 Zonas de Nova York com PK MD5 (id_dim_zonas)"
+    columns:
+      - name: id_dim_zonas
+        description: "PK MD5 da dimensão de zonas"
+        tests:
+          - unique
+          - not_null
+      - name: distrito
+        description: "Distrito (Borough) de Nova York"
+        tests:
+          - not_null
+      - name: nome_zona
+        description: "Nome oficial do bairro/zona"
+        tests:
+          - not_null
+      - name: zona_servico
+        description: "Classificação de zona de serviço (YELLOW_ZONE, BORO_ZONE, AIRPORTS, EWR)"
+        tests:
+          - not_null
+      - name: tier_demanda_zona
+        description: "Classificação de demanda da zona"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['HUB_ALTA_DEMANDA', 'DEMANDA_MEDIA', 'DEMANDA_BAIXA']

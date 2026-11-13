@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: fato_corridas
+    description: "Mart Mobilidade Urbana: Tabela Fato de Corridas NYC TLC (PK MD5: chave | FKs MD5: id_dim_*)"
+    columns:
+      - name: chave
+        description: "PK MD5 única da corrida"
+        tests:
+          - unique
+          - not_null
+      - name: id_dim_zonas_embarque
+        description: "FK MD5 para dim_zonas (embarque)"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_zonas')
+              field: id_dim_zonas
+      - name: id_dim_zonas_desembarque
+        description: "FK MD5 para dim_zonas (desembarque)"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_zonas')
+              field: id_dim_zonas
+      - name: id_dim_modalidades_pagamento
+        description: "FK MD5 para dim_modalidades_pagamento"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_modalidades_pagamento')
+              field: id_dim_modalidades_pagamento
+      - name: id_dim_tarifas
+        description: "FK MD5 para dim_tarifas"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_tarifas')
+              field: id_dim_tarifas
+      - name: turno_viagem
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['01_PICO_MANHA', '02_COMERCIAL_TARDE', '03_PICO_NOITE', '04_NOTURNO', '05_MADRUGADA']
+      - name: tipo_rota
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['INTRA_DISTRITO', 'INTER_DISTRITO', 'CONEXAO_AEROPORTO']
+      - name: valor_total_corrida
+        tests:
+          - not_null

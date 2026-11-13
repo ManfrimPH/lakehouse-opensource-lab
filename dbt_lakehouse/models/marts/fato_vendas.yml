@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: fato_vendas
+    description: "Mart 02: Tabela Fato de Vendas (PK MD5: chave | FK MD5: id_dim_clientes)"
+    columns:
+      - name: chave
+        description: "PK MD5 única da venda"
+        tests:
+          - unique
+          - not_null
+      - name: id_dim_clientes
+        description: "FK MD5 referenciando dim_clientes.id_dim_clientes"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_clientes')
+              field: id_dim_clientes
+      - name: status_pedido
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['CONCLUIDO', 'CANCELADO']
+      - name: forma_pagamento
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['PIX', 'CARTAO_CREDITO', 'BOLETO']
+      - name: valor_liquido
+        tests:
+          - not_null
+      - name: receita_liquida_real
+        tests:
+          - not_null

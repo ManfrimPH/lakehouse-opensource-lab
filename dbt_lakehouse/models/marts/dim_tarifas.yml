@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: dim_tarifas
+    description: "Mart Mobilidade Urbana: Dimensão de modalidades tarifárias com PK MD5 (id_dim_tarifas)"
+    columns:
+      - name: id_dim_tarifas
+        description: "PK MD5 da modalidade de tarifa"
+        tests:
+          - unique
+          - not_null
+      - name: nome_tarifa
+        description: "Nome da regra tarifária"
+        tests:
+          - not_null
+      - name: tipo_cobranca
+        description: "Regime de cobrança da tarifa"
+        tests:
+          - not_null
