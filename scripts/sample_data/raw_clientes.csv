@@ -1,0 +1,11 @@
+id_cliente,nome_cliente,segmento,uf,cidade,data_cadastro
+101,TechCorp Soluções S.A.,ENTERPRISE,SP,São Paulo,2024-01-15
+102,Varejo Sul Ltda,MID_MARKET,PR,Curitiba,2024-02-10
+103,AgroNorte Cooperativa,ENTERPRISE,MT,Cuiabá,2024-03-05
+104,FinPay Pagamentos Digitais,ENTERPRISE,SP,Campinas,2024-03-22
+105,Logística Atlântico,MID_MARKET,SC,Joinville,2024-04-12
+106,Rede Saúde Integrada,ENTERPRISE,MG,Belo Horizonte,2024-05-01
+107,Comércio Digital Express,SMB,RJ,Rio de Janeiro,2024-05-19
+108,Indústria Metalúrgica Alfa,MID_MARKET,RS,Porto Alegre,2024-06-08
+109,EducaMais Plataforma EAD,MID_MARKET,PR,Maringá,2024-07-02
+110,BioEnergy Renovável,ENTERPRISE,GO,Goiânia,2024-08-14
