@@ -44,10 +44,10 @@ make demo-cicd
 - Abra o **Project Nessie** em `http://localhost:19120` para mostrar as branches `main`, `etl_diario` e `homologacao`.
 - Abra o **MinIO** em `http://localhost:9101` (bucket `lakehouse`) para mostrar os arquivos físicos `.parquet` e a árvore de metadados (`metadata/*.json` e `.avro`) do **Apache Iceberg**.
 
-### 2. Mostrar o Motor Vetorizado e a Camada Semântica (Dremio)
+### 2. Mostrar o Motor Vetorizado e o Catálogo Unificado no Dremio
 - Abra o **Dremio** em `http://localhost:9047` (`admin` / `Admin1234!`).
-- Mostre a fonte **`nessie`** conectada com seletor de branches (`main` / `etl_diario`) e as tabelas Iceberg `nessie.vendas.clientes` e `nessie.vendas.pedidos`.
-- Mostre os Spaces da Camada Semântica (**Slide 15**): `raw_layer`, `prep_layer` e `business` (com a view `business.vw_faturamento_executivo`).
+- Mostre a fonte oficial **`nessie`** conectada com seletor de branches (`main` / `etl_diario`) e as tabelas Apache Iceberg estruturadas em `nessie.raw` (dados de auditoria/entrada) e `nessie.marts` (fatos e dimensões analíticas com chaves MD5).
+- Execute consultas no SQL Lab com velocidade em milissegundos via Apache Arrow.
 
 ### 3. Mostrar o Data CI/CD e o Circuit Breaker no Apache Airflow
 - Abra o **Apache Airflow** em `http://localhost:8085` (`admin` / `admin`).

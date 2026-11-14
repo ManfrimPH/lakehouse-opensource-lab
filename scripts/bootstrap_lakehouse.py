@@ -185,7 +185,7 @@ print('   • Camada RAW populada com sucesso (raw_taxi_zones: 265 | raw_yellow_
 
 
 def setup_dremio_and_nessie():
-    step("2/4 - Estruturando Dremio + Nessie: 01_raw -> 02_staging -> 03_intermediate -> 04_marts (Iceberg Puro)")
+    step("2/4 - Estruturando Catálogo Nessie (Apache Iceberg Puro: raw + marts)")
     if not wait_http("Dremio UI/API", f"{DREMIO_URL}/", timeout_sec=180):
         return
 
@@ -215,7 +215,15 @@ def setup_dremio_and_nessie():
     token = f"_dremio{login_resp.json()['token']}"
     headers = {"Authorization": token, "Content-Type": "application/json"}
 
-    # Conecta Nessie como Catálogo Iceberg
+    # Remove Spaces do Dremio se existirem (Padrão 100% Catálogo Nessie Puro)
+    cat_root = requests.get(f"{DREMIO_URL}/api/v3/catalog", headers=headers, timeout=10).json()
+    for item in cat_root.get("data", []):
+        path_name = item.get("path", [""])[0]
+        if path_name in ("01_raw", "02_staging", "03_intermediate", "04_marts", "raw_layer", "prep_layer", "business"):
+            requests.delete(f"{DREMIO_URL}/api/v3/catalog/{item['id']}", headers=headers, timeout=10)
+            print(f"   • Space '{path_name}' removido (consumo direto via Catálogo Nessie).")
+
+    # Conecta Nessie como Catálogo Iceberg Oficial
     nessie_source = {
         "entityType": "source",
         "name": "nessie",
@@ -237,7 +245,7 @@ def setup_dremio_and_nessie():
     }
     requests.post(f"{DREMIO_URL}/api/v3/catalog", headers=headers, json=nessie_source, timeout=20)
 
-    # Conecta PostgreSQL auxiliar para ingestão de datasets brutos de alta volumetria
+    # Conecta PostgreSQL temporariamente para ingestão inicial dos dados brutos
     pg_source = {
         "entityType": "source",
         "name": "pg_lakehouse",
@@ -251,15 +259,6 @@ def setup_dremio_and_nessie():
         },
     }
     requests.post(f"{DREMIO_URL}/api/v3/catalog", headers=headers, json=pg_source, timeout=20)
-
-    # Cria os 4 Spaces no Dremio: 01_raw, 02_staging, 03_intermediate, 04_marts
-    for space_name in ["01_raw", "02_staging", "03_intermediate", "04_marts"]:
-        requests.post(
-            f"{DREMIO_URL}/api/v3/catalog",
-            headers=headers,
-            json={"entityType": "space", "name": space_name},
-            timeout=10,
-        )
 
     print("   • Materializando Tabelas Apache Iceberg físicas no Project Nessie (S3/MinIO)...")
 
@@ -280,150 +279,38 @@ def setup_dremio_and_nessie():
         dremio_sql_sync(token, s.strip(), wait_sec=40)
     print("     [Nessie] Camada RAW (Iceberg) materializada!")
 
-    # 2. STAGING TABLES NO NESSIE
-    stg_statements = [
-        "DROP TABLE IF EXISTS nessie.staging.stg_clientes",
-        """CREATE TABLE nessie.staging.stg_clientes AS
-           SELECT id_cliente, TRIM(nome_cliente) AS nome_cliente, UPPER(TRIM(segmento)) AS segmento,
-                  UPPER(TRIM(uf)) AS uf, TRIM(cidade) AS cidade, data_cadastro
-           FROM nessie.raw.clientes""",
-
-        "DROP TABLE IF EXISTS nessie.staging.stg_pedidos",
-        """CREATE TABLE nessie.staging.stg_pedidos AS
-           SELECT id_pedido, id_cliente, data_venda, UPPER(TRIM(status_pedido)) AS status_pedido,
-                  UPPER(TRIM(forma_pagamento)) AS forma_pagamento, valor_bruto, desconto, valor_liquido
-           FROM nessie.raw.pedidos""",
-
-        "DROP TABLE IF EXISTS nessie.staging.stg_pagamentos",
-        """CREATE TABLE nessie.staging.stg_pagamentos AS
-           SELECT id_pagamento, id_pedido, UPPER(TRIM(meio_pagamento)) AS meio_pagamento,
-                  parcelas, taxa_gateway_pct, valor_taxa_gateway, UPPER(TRIM(status_liquidacao)) AS status_liquidacao
-           FROM nessie.raw.pagamentos""",
-
-        "DROP TABLE IF EXISTS nessie.staging.stg_zonas",
-        """CREATE TABLE nessie.staging.stg_zonas AS
-           SELECT location_id AS id_zona, TRIM(borough) AS distrito, TRIM(zone) AS nome_zona,
-                  TRIM(service_zone) AS zona_servico
-           FROM nessie.raw.taxi_zones""",
-
-        "DROP TABLE IF EXISTS nessie.staging.stg_corridas",
-        """CREATE TABLE nessie.staging.stg_corridas AS
-           SELECT trip_id AS id_corrida_origem, vendorid AS id_fornecedor, ratecodeid AS id_tarifa,
-                  payment_type AS id_tipo_pagamento, pulocationid AS id_zona_embarque, dolocationid AS id_zona_desembarque,
-                  tpep_pickup_datetime AS dh_embarque, tpep_dropoff_datetime AS dh_desembarque,
-                  passenger_count AS qtd_passageiros, trip_distance AS distancia_milhas, fare_amount AS valor_tarifa_base,
-                  extra AS valor_extra, mta_tax AS valor_imposto_mta, tip_amount AS valor_gorjeta,
-                  tolls_amount AS valor_pedagio, improvement_surcharge AS valor_sobretaxa_melhoria,
-                  total_amount AS valor_total_corrida, congestion_surcharge AS valor_taxa_congestionamento,
-                  airport_fee AS valor_taxa_aeroporto
-           FROM nessie.raw.yellow_tripdata""",
-    ]
-    for s in stg_statements:
-        dremio_sql_sync(token, s.strip(), wait_sec=40)
-    print("     [Nessie] Camada Staging (Iceberg) materializada!")
-
-    # 3. INTERMEDIATE TABLES NO NESSIE
-    int_statements = [
-        "DROP TABLE IF EXISTS nessie.intermediate.int_clientes_metricas",
-        """CREATE TABLE nessie.intermediate.int_clientes_metricas AS
-           SELECT c.id_cliente, c.nome_cliente, c.segmento, c.uf, c.cidade, c.data_cadastro,
-                  COUNT(p.id_pedido) AS total_pedidos, COALESCE(SUM(p.valor_liquido), 0) AS ltv_cliente
-           FROM nessie.staging.stg_clientes AS c
-           LEFT JOIN nessie.staging.stg_pedidos AS p ON c.id_cliente = p.id_cliente AND p.status_pedido = 'CONCLUIDO'
-           GROUP BY c.id_cliente, c.nome_cliente, c.segmento, c.uf, c.cidade, c.data_cadastro""",
-
-        "DROP TABLE IF EXISTS nessie.intermediate.int_pedidos_enriquecidos",
-        """CREATE TABLE nessie.intermediate.int_pedidos_enriquecidos AS
-           SELECT p.id_pedido, p.id_cliente, c.nome_cliente, c.segmento AS segmento_cliente, c.uf AS uf_cliente,
-                  p.data_venda, p.status_pedido, p.forma_pagamento, p.valor_bruto, p.desconto, p.valor_liquido,
-                  COALESCE(pg.valor_taxa_gateway, 0) AS valor_taxa_gateway,
-                  (p.valor_liquido - COALESCE(pg.valor_taxa_gateway, 0)) AS receita_liquida_real,
-                  COALESCE(pg.status_liquidacao, 'PENDENTE') AS status_liquidacao
-           FROM nessie.staging.stg_pedidos AS p
-           JOIN nessie.staging.stg_clientes AS c ON p.id_cliente = c.id_cliente
-           LEFT JOIN nessie.staging.stg_pagamentos AS pg ON p.id_pedido = pg.id_pedido""",
-
-        "DROP TABLE IF EXISTS nessie.intermediate.int_zonas_tratadas",
-        """CREATE TABLE nessie.intermediate.int_zonas_tratadas AS
-           WITH zonas_limpas AS (
-               SELECT id_zona, MD5(CAST(id_zona AS VARCHAR)) AS id_dim_zonas,
-                      CASE WHEN UPPER(TRIM(COALESCE(distrito, ''))) IN ('', 'UNKNOWN', 'N/A') THEN 'NAO_INFORMADO' ELSE UPPER(TRIM(distrito)) END AS distrito,
-                      CASE WHEN TRIM(COALESCE(nome_zona, '')) IN ('', 'NV', 'NA', 'Unknown') THEN 'Zona Não Identificada' ELSE TRIM(nome_zona) END AS nome_zona,
-                      CASE WHEN UPPER(TRIM(COALESCE(zona_servico, ''))) IN ('', 'N/A', 'UNKNOWN') THEN 'NAO_INFORMADO' ELSE UPPER(REPLACE(TRIM(zona_servico), ' ', '_')) END AS zona_servico
-               FROM nessie.staging.stg_zonas
-           ),
-           corridas_validas AS (
-               SELECT id_zona_embarque, id_zona_desembarque, COALESCE(valor_total_corrida, 0.00) AS valor_total_corrida
-               FROM nessie.staging.stg_corridas
-               WHERE COALESCE(valor_total_corrida, 0) > 0 AND COALESCE(valor_tarifa_base, 0) >= 0 AND COALESCE(distancia_milhas, 0) >= 0 AND dh_desembarque > dh_embarque
-           ),
-           embarques_por_zona AS (
-               SELECT id_zona_embarque AS id_zona, COUNT(*) AS total_embarques, COALESCE(SUM(valor_total_corrida), 0.00) AS faturamento_origem_usd
-               FROM corridas_validas GROUP BY id_zona_embarque
-           ),
-           desembarques_por_zona AS (
-               SELECT id_zona_desembarque AS id_zona, COUNT(*) AS total_desembarques
-               FROM corridas_validas GROUP BY id_zona_desembarque
-           )
-           SELECT z.id_zona, z.id_dim_zonas, z.distrito, z.nome_zona, z.zona_servico,
-                  COALESCE(e.total_embarques, 0) AS total_embarques, COALESCE(d.total_desembarques, 0) AS total_desembarques,
-                  COALESCE(e.faturamento_origem_usd, 0.00) AS faturamento_origem_usd
-           FROM zonas_limpas AS z
-           LEFT JOIN embarques_por_zona AS e ON z.id_zona = e.id_zona
-           LEFT JOIN desembarques_por_zona AS d ON z.id_zona = d.id_zona""",
-
-        "DROP TABLE IF EXISTS nessie.intermediate.int_corridas_tratadas",
-        """CREATE TABLE nessie.intermediate.int_corridas_tratadas AS
-           WITH corridas_saneadas AS (
-               SELECT id_corrida_origem, COALESCE(id_fornecedor, 99) AS id_fornecedor,
-                      CASE WHEN id_tarifa IN (1, 2, 3, 4, 5, 6) THEN id_tarifa ELSE 99 END AS id_tarifa,
-                      CASE WHEN id_tipo_pagamento IN (1, 2, 3, 4, 5, 6) THEN id_tipo_pagamento ELSE 5 END AS id_tipo_pagamento,
-                      COALESCE(id_zona_embarque, 264) AS id_zona_embarque, COALESCE(id_zona_desembarque, 264) AS id_zona_desembarque,
-                      dh_embarque, dh_desembarque,
-                      CASE WHEN COALESCE(qtd_passageiros, 0) <= 0 THEN 1 ELSE qtd_passageiros END AS qtd_passageiros,
-                      COALESCE(distancia_milhas, 0.00) AS distancia_milhas,
-                      ROUND(COALESCE(distancia_milhas, 0.00) * 1.60934, 2) AS distancia_km,
-                      TIMESTAMPDIFF(MINUTE, dh_embarque, dh_desembarque) AS duracao_minutos,
-                      COALESCE(valor_tarifa_base, 0.00) AS valor_tarifa_base,
-                      (COALESCE(valor_extra, 0.00) + COALESCE(valor_imposto_mta, 0.00) + COALESCE(valor_sobretaxa_melhoria, 0.00)) AS valor_extras_total,
-                      GREATEST(COALESCE(valor_gorjeta, 0.00), 0.00) AS valor_gorjeta,
-                      GREATEST(COALESCE(valor_pedagio, 0.00), 0.00) AS valor_pedagio,
-                      GREATEST(COALESCE(valor_taxa_congestionamento, 0.00), 0.00) AS valor_taxa_congestionamento,
-                      GREATEST(COALESCE(valor_taxa_aeroporto, 0.00), 0.00) AS valor_taxa_aeroporto,
-                      COALESCE(valor_total_corrida, 0.00) AS valor_total_corrida
-               FROM nessie.staging.stg_corridas
-               WHERE COALESCE(valor_total_corrida, 0) > 0 AND COALESCE(valor_tarifa_base, 0) >= 0 AND COALESCE(distancia_milhas, 0) >= 0 AND dh_desembarque > dh_embarque
-           )
-           SELECT MD5(CAST(c.id_corrida_origem AS VARCHAR))   AS chave,
-                  MD5(CAST(c.id_zona_embarque AS VARCHAR))    AS id_dim_zonas_embarque,
-                  MD5(CAST(c.id_zona_desembarque AS VARCHAR)) AS id_dim_zonas_desembarque,
-                  MD5(CAST(c.id_tipo_pagamento AS VARCHAR))   AS id_dim_modalidades_pagamento,
-                  MD5(CAST(c.id_tarifa AS VARCHAR))           AS id_dim_tarifas,
-                  c.id_corrida_origem, c.id_zona_embarque, c.id_zona_desembarque, c.id_fornecedor, c.id_tarifa, c.id_tipo_pagamento,
-                  c.dh_embarque, c.dh_desembarque, CAST(c.dh_embarque AS DATE) AS dt_corrida,
-                  c.qtd_passageiros, c.distancia_milhas, c.distancia_km, c.duracao_minutos,
-                  CASE WHEN c.duracao_minutos > 0 THEN ROUND((c.distancia_km / (c.duracao_minutos / 60.0)), 2) ELSE 0.00 END AS velocidade_media_kmh,
-                  c.valor_tarifa_base, c.valor_extras_total, c.valor_gorjeta, c.valor_pedagio, c.valor_taxa_congestionamento, c.valor_taxa_aeroporto, c.valor_total_corrida
-           FROM corridas_saneadas AS c""",
-    ]
-    for s in int_statements:
-        dremio_sql_sync(token, s.strip(), wait_sec=40)
-    print("     [Nessie] Camada Intermediate (Iceberg) materializada!")
-
-    # 4. MARTS NO NESSIE
+    # 2. MARTS ANALÍTICOS DIRETOS NO NESSIE (Sem duplicação física de Staging/Intermediate)
     marts_statements = [
         "DROP TABLE IF EXISTS nessie.marts.dim_clientes",
         """CREATE TABLE nessie.marts.dim_clientes AS
-           SELECT MD5(CAST(id_cliente AS VARCHAR)) AS id_dim_clientes, id_cliente, nome_cliente, segmento,
-                  uf, cidade, data_cadastro, total_pedidos, ltv_cliente,
-                  CASE WHEN ltv_cliente >= 20000 THEN 'CLIENTE_VIP' WHEN ltv_cliente >= 10000 THEN 'CLIENTE_ESTRATEGICO' ELSE 'CLIENTE_STANDARD' END AS perfil_cliente
-           FROM nessie.intermediate.int_clientes_metricas""",
+           SELECT MD5(CAST(c.id_cliente AS VARCHAR)) AS id_dim_clientes, c.id_cliente, TRIM(c.nome_cliente) AS nome_cliente,
+                  UPPER(TRIM(c.segmento)) AS segmento, UPPER(TRIM(c.uf)) AS uf, TRIM(c.cidade) AS cidade, c.data_cadastro,
+                  COUNT(p.id_pedido) AS total_pedidos, COALESCE(SUM(p.valor_liquido), 0) AS ltv_cliente,
+                  CASE WHEN COALESCE(SUM(p.valor_liquido), 0) >= 20000 THEN 'CLIENTE_VIP'
+                       WHEN COALESCE(SUM(p.valor_liquido), 0) >= 10000 THEN 'CLIENTE_ESTRATEGICO'
+                       ELSE 'CLIENTE_STANDARD' END AS perfil_cliente
+           FROM nessie.raw.clientes AS c
+           LEFT JOIN nessie.raw.pedidos AS p ON c.id_cliente = p.id_cliente AND UPPER(TRIM(p.status_pedido)) = 'CONCLUIDO'
+           GROUP BY c.id_cliente, c.nome_cliente, c.segmento, c.uf, c.cidade, c.data_cadastro""",
 
         "DROP TABLE IF EXISTS nessie.marts.dim_zonas",
         """CREATE TABLE nessie.marts.dim_zonas AS
-           SELECT id_dim_zonas, id_zona, distrito, nome_zona, zona_servico,
-                  total_embarques, total_desembarques, faturamento_origem_usd
-           FROM nessie.intermediate.int_zonas_tratadas""",
+           WITH corridas_validas AS (
+               SELECT pulocationid AS id_zona_embarque, dolocationid AS id_zona_desembarque, COALESCE(total_amount, 0.00) AS valor_total_corrida
+               FROM nessie.raw.yellow_tripdata
+               WHERE COALESCE(total_amount, 0) > 0 AND COALESCE(fare_amount, 0) >= 0 AND COALESCE(trip_distance, 0) >= 0 AND tpep_dropoff_datetime > tpep_pickup_datetime
+           ),
+           embarques AS (SELECT id_zona_embarque AS id_zona, COUNT(*) AS total_embarques, COALESCE(SUM(valor_total_corrida), 0.00) AS faturamento_origem_usd FROM corridas_validas GROUP BY id_zona_embarque),
+           desembarques AS (SELECT id_zona_desembarque AS id_zona, COUNT(*) AS total_desembarques FROM corridas_validas GROUP BY id_zona_desembarque)
+           SELECT MD5(CAST(z.location_id AS VARCHAR)) AS id_dim_zonas, z.location_id AS id_zona,
+                  CASE WHEN UPPER(TRIM(COALESCE(z.borough, ''))) IN ('', 'UNKNOWN', 'N/A') THEN 'NAO_INFORMADO' ELSE UPPER(TRIM(z.borough)) END AS distrito,
+                  CASE WHEN TRIM(COALESCE(z.zone, '')) IN ('', 'NV', 'NA', 'Unknown') THEN 'Zona Não Identificada' ELSE TRIM(z.zone) END AS nome_zona,
+                  CASE WHEN UPPER(TRIM(COALESCE(z.service_zone, ''))) IN ('', 'N/A', 'UNKNOWN') THEN 'NAO_INFORMADO' ELSE UPPER(REPLACE(TRIM(z.service_zone), ' ', '_')) END AS zona_servico,
+                  COALESCE(e.total_embarques, 0) AS total_embarques, COALESCE(d.total_desembarques, 0) AS total_desembarques,
+                  COALESCE(e.faturamento_origem_usd, 0.00) AS faturamento_origem_usd
+           FROM nessie.raw.taxi_zones AS z
+           LEFT JOIN embarques AS e ON z.location_id = e.id_zona
+           LEFT JOIN desembarques AS d ON z.location_id = d.id_zona""",
 
         "DROP TABLE IF EXISTS nessie.marts.dim_modalidades_pagamento",
         """CREATE TABLE nessie.marts.dim_modalidades_pagamento AS
@@ -452,18 +339,51 @@ def setup_dremio_and_nessie():
 
         "DROP TABLE IF EXISTS nessie.marts.fato_corridas",
         """CREATE TABLE nessie.marts.fato_corridas AS
-           SELECT chave, id_dim_zonas_embarque, id_dim_zonas_desembarque, id_dim_modalidades_pagamento, id_dim_tarifas,
-                  id_corrida_origem, dh_embarque, dh_desembarque, dt_corrida, qtd_passageiros, distancia_milhas,
-                  distancia_km, duracao_minutos, velocidade_media_kmh, valor_tarifa_base, valor_extras_total,
-                  valor_gorjeta, valor_pedagio, valor_taxa_congestionamento, valor_taxa_aeroporto, valor_total_corrida
-           FROM nessie.intermediate.int_corridas_tratadas""",
+           WITH corridas_saneadas AS (
+               SELECT trip_id AS id_corrida_origem,
+                      COALESCE(vendorid, 99) AS id_fornecedor,
+                      CASE WHEN ratecodeid IN (1, 2, 3, 4, 5, 6) THEN CAST(ratecodeid AS INT) ELSE 99 END AS id_tarifa,
+                      CASE WHEN payment_type IN (1, 2, 3, 4, 5, 6) THEN payment_type ELSE 5 END AS id_tipo_pagamento,
+                      COALESCE(pulocationid, 264) AS id_zona_embarque,
+                      COALESCE(dolocationid, 264) AS id_zona_desembarque,
+                      tpep_pickup_datetime AS dh_embarque, tpep_dropoff_datetime AS dh_desembarque,
+                      CASE WHEN COALESCE(passenger_count, 0) <= 0 THEN 1 ELSE CAST(passenger_count AS INT) END AS qtd_passageiros,
+                      COALESCE(trip_distance, 0.00) AS distancia_milhas,
+                      ROUND(COALESCE(trip_distance, 0.00) * 1.60934, 2) AS distancia_km,
+                      TIMESTAMPDIFF(MINUTE, tpep_pickup_datetime, tpep_dropoff_datetime) AS duracao_minutos,
+                      COALESCE(fare_amount, 0.00) AS valor_tarifa_base,
+                      (COALESCE(extra, 0.00) + COALESCE(mta_tax, 0.00) + COALESCE(improvement_surcharge, 0.00)) AS valor_extras_total,
+                      GREATEST(COALESCE(tip_amount, 0.00), 0.00) AS valor_gorjeta,
+                      GREATEST(COALESCE(tolls_amount, 0.00), 0.00) AS valor_pedagio,
+                      GREATEST(COALESCE(congestion_surcharge, 0.00), 0.00) AS valor_taxa_congestionamento,
+                      GREATEST(COALESCE(airport_fee, 0.00), 0.00) AS valor_taxa_aeroporto,
+                      COALESCE(total_amount, 0.00) AS valor_total_corrida
+               FROM nessie.raw.yellow_tripdata
+               WHERE COALESCE(total_amount, 0) > 0 AND COALESCE(fare_amount, 0) >= 0 AND COALESCE(trip_distance, 0) >= 0 AND tpep_dropoff_datetime > tpep_pickup_datetime
+           )
+           SELECT MD5(CAST(c.id_corrida_origem AS VARCHAR))   AS chave,
+                  MD5(CAST(c.id_zona_embarque AS VARCHAR))    AS id_dim_zonas_embarque,
+                  MD5(CAST(c.id_zona_desembarque AS VARCHAR)) AS id_dim_zonas_desembarque,
+                  MD5(CAST(c.id_tipo_pagamento AS VARCHAR))   AS id_dim_modalidades_pagamento,
+                  MD5(CAST(c.id_tarifa AS VARCHAR))           AS id_dim_tarifas,
+                  c.id_corrida_origem, c.id_zona_embarque, c.id_zona_desembarque, c.id_fornecedor, c.id_tarifa, c.id_tipo_pagamento,
+                  c.dh_embarque, c.dh_desembarque, CAST(c.dh_embarque AS DATE) AS dt_corrida,
+                  c.qtd_passageiros, c.distancia_milhas, c.distancia_km, c.duracao_minutos,
+                  CASE WHEN c.duracao_minutos > 0 THEN ROUND((c.distancia_km / (c.duracao_minutos / 60.0)), 2) ELSE 0.00 END AS velocidade_media_kmh,
+                  c.valor_tarifa_base, c.valor_extras_total, c.valor_gorjeta, c.valor_pedagio, c.valor_taxa_congestionamento, c.valor_taxa_aeroporto, c.valor_total_corrida
+           FROM corridas_saneadas AS c""",
 
         "DROP TABLE IF EXISTS nessie.marts.fato_vendas",
         """CREATE TABLE nessie.marts.fato_vendas AS
-           SELECT MD5(CAST(id_pedido AS VARCHAR)) AS id_fato_vendas, MD5(CAST(id_cliente AS VARCHAR)) AS id_dim_clientes,
-                  id_pedido, id_cliente, data_venda, status_pedido, forma_pagamento, valor_bruto, desconto,
-                  valor_liquido, valor_taxa_gateway, receita_liquida_real, status_liquidacao
-           FROM nessie.intermediate.int_pedidos_enriquecidos""",
+           SELECT MD5(CAST(p.id_pedido AS VARCHAR)) AS id_fato_vendas, MD5(CAST(p.id_cliente AS VARCHAR)) AS id_dim_clientes,
+                  p.id_pedido, p.id_cliente, p.data_venda, UPPER(TRIM(p.status_pedido)) AS status_pedido,
+                  UPPER(TRIM(p.forma_pagamento)) AS forma_pagamento, p.valor_bruto, p.desconto, p.valor_liquido,
+                  COALESCE(pg.valor_taxa_gateway, 0) AS valor_taxa_gateway,
+                  (p.valor_liquido - COALESCE(pg.valor_taxa_gateway, 0)) AS receita_liquida_real,
+                  COALESCE(UPPER(TRIM(pg.status_liquidacao)), 'PENDENTE') AS status_liquidacao
+           FROM nessie.raw.pedidos AS p
+           JOIN nessie.raw.clientes AS c ON p.id_cliente = c.id_cliente
+           LEFT JOIN nessie.raw.pagamentos AS pg ON p.id_pedido = pg.id_pedido""",
 
         "DROP TABLE IF EXISTS nessie.marts.mart_faturamento_diario",
         """CREATE TABLE nessie.marts.mart_faturamento_diario AS
@@ -472,7 +392,7 @@ def setup_dremio_and_nessie():
                   SUM(desconto) AS total_descontos, SUM(valor_liquido) AS faturamento_liquido,
                   SUM(receita_liquida_real) AS receita_real_caixa, ROUND(AVG(valor_liquido), 2) AS ticket_medio,
                   ROUND((SUM(desconto) / NULLIF(SUM(valor_bruto), 0)) * 100, 2) AS percentual_medio_desconto
-           FROM nessie.intermediate.int_pedidos_enriquecidos
+           FROM nessie.marts.fato_vendas
            WHERE status_pedido = 'CONCLUIDO'
            GROUP BY data_venda""",
 
@@ -491,57 +411,27 @@ def setup_dremio_and_nessie():
         dremio_sql_sync(token, s.strip(), wait_sec=40)
     print("     [Nessie] Camada Marts (Iceberg) materializada!")
 
-    # 5. SPACES DO DREMIO (VIEWS CONSUMINDO O NESSIE COM SEMÂNTICA GIT)
-    dremio_space_views = [
-        # 01_raw
-        'CREATE OR REPLACE VIEW "01_raw".raw_clientes AS SELECT * FROM nessie.raw.clientes AT BRANCH main',
-        'CREATE OR REPLACE VIEW "01_raw".raw_pedidos AS SELECT * FROM nessie.raw.pedidos AT BRANCH main',
-        'CREATE OR REPLACE VIEW "01_raw".raw_pagamentos AS SELECT * FROM nessie.raw.pagamentos AT BRANCH main',
-        'CREATE OR REPLACE VIEW "01_raw".raw_taxi_zones AS SELECT * FROM nessie.raw.taxi_zones AT BRANCH main',
-        'CREATE OR REPLACE VIEW "01_raw".raw_yellow_tripdata AS SELECT * FROM nessie.raw.yellow_tripdata AT BRANCH main',
-
-        # 02_staging
-        'CREATE OR REPLACE VIEW "02_staging".stg_clientes AS SELECT * FROM nessie.staging.stg_clientes AT BRANCH main',
-        'CREATE OR REPLACE VIEW "02_staging".stg_pedidos AS SELECT * FROM nessie.staging.stg_pedidos AT BRANCH main',
-        'CREATE OR REPLACE VIEW "02_staging".stg_pagamentos AS SELECT * FROM nessie.staging.stg_pagamentos AT BRANCH main',
-        'CREATE OR REPLACE VIEW "02_staging".stg_zonas AS SELECT * FROM nessie.staging.stg_zonas AT BRANCH main',
-        'CREATE OR REPLACE VIEW "02_staging".stg_corridas AS SELECT * FROM nessie.staging.stg_corridas AT BRANCH main',
-
-        # 03_intermediate
-        'CREATE OR REPLACE VIEW "03_intermediate".int_clientes_metricas AS SELECT * FROM nessie.intermediate.int_clientes_metricas AT BRANCH main',
-        'CREATE OR REPLACE VIEW "03_intermediate".int_pedidos_enriquecidos AS SELECT * FROM nessie.intermediate.int_pedidos_enriquecidos AT BRANCH main',
-        'CREATE OR REPLACE VIEW "03_intermediate".int_zonas_tratadas AS SELECT * FROM nessie.intermediate.int_zonas_tratadas AT BRANCH main',
-        'CREATE OR REPLACE VIEW "03_intermediate".int_corridas_tratadas AS SELECT * FROM nessie.intermediate.int_corridas_tratadas AT BRANCH main',
-
-        # 04_marts
-        'CREATE OR REPLACE VIEW "04_marts".dim_clientes AS SELECT * FROM nessie.marts.dim_clientes AT BRANCH main',
-        'CREATE OR REPLACE VIEW "04_marts".dim_zonas AS SELECT * FROM nessie.marts.dim_zonas AT BRANCH main',
-        'CREATE OR REPLACE VIEW "04_marts".dim_tarifas AS SELECT * FROM nessie.marts.dim_tarifas AT BRANCH main',
-        'CREATE OR REPLACE VIEW "04_marts".dim_modalidades_pagamento AS SELECT * FROM nessie.marts.dim_modalidades_pagamento AT BRANCH main',
-        'CREATE OR REPLACE VIEW "04_marts".fato_corridas AS SELECT * FROM nessie.marts.fato_corridas AT BRANCH main',
-        'CREATE OR REPLACE VIEW "04_marts".fato_vendas AS SELECT * FROM nessie.marts.fato_vendas AT BRANCH main',
-        'CREATE OR REPLACE VIEW "04_marts".mart_faturamento_diario AS SELECT * FROM nessie.marts.mart_faturamento_diario AT BRANCH main',
-        'CREATE OR REPLACE VIEW "04_marts".mart_mobilidade_diaria_zonas AS SELECT * FROM nessie.marts.mart_mobilidade_diaria_zonas AT BRANCH main',
-    ]
-    for sv in dremio_space_views:
-        dremio_sql_sync(token, sv.strip(), wait_sec=30)
-    print("   • Spaces do Dremio atualizados apontando para as tabelas Iceberg versionadas!")
+    # Remove pg_lakehouse após ingestão inicial para deixar Dremio 100% limpo com catálogo Nessie
+    cat_check = requests.get(f"{DREMIO_URL}/api/v3/catalog", headers=headers, timeout=10).json()
+    for item in cat_check.get("data", []):
+        if item.get("path", [""])[0] == "pg_lakehouse":
+            requests.delete(f"{DREMIO_URL}/api/v3/catalog/{item['id']}", headers=headers, timeout=10)
+            print("   • Fonte temporária 'pg_lakehouse' removida. Dremio 100% focado no Nessie!")
 
     # Sincroniza branches de homologação e etl no Nessie
-    main_r = requests.get(f"{NESSIE_URL}/trees/tree/main", timeout=10).json()
-    main_hash = main_r["hash"]
+    main_r = requests.get(f"{NESSIE_URL}/api/v2/trees/main", timeout=10).json()
+    main_hash = main_r["reference"]["hash"]
     for b_name in ["etl_diario", "homologacao"]:
-        chk = requests.get(f"{NESSIE_URL}/trees/tree/{b_name}", timeout=10)
+        chk = requests.get(f"{NESSIE_URL}/api/v2/trees/{b_name}", timeout=10)
         if chk.status_code == 200:
-            old_h = chk.json()["hash"]
-            requests.delete(f"{NESSIE_URL}/trees/branch/{b_name}?expectedHash={old_h}", timeout=10)
+            old_h = chk.json()["reference"]["hash"]
+            requests.delete(f"{NESSIE_URL}/api/v2/trees/{b_name}@{old_h}", timeout=10)
         requests.post(
-            f"{NESSIE_URL}/trees/tree?sourceRefName=main",
+            f"{NESSIE_URL}/api/v2/trees",
             json={"type": "BRANCH", "name": b_name, "hash": main_hash},
             timeout=10,
         )
-    print("   ✅ Dremio e Nessie estruturados com 100% das camadas Medalhão em Apache Iceberg!")
-
+    print("   ✅ Catálogo Nessie estruturado com Iceberg Canônico (nessie.raw + nessie.marts)!")
 
 
 def setup_dbt():
