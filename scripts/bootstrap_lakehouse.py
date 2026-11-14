@@ -411,6 +411,37 @@ def setup_dremio_and_nessie():
         dremio_sql_sync(token, s.strip(), wait_sec=40)
     print("     [Nessie] Camada Marts (Iceberg) materializada!")
 
+    # 5. Spaces no Dremio (raw e marts) para visualização e navegação amigável no Web UI
+    print("   • Criando Spaces no Dremio ('raw' e 'marts') sem prefixos para navegação visual...")
+    for space_name in ["raw", "marts"]:
+        requests.post(
+            f"{DREMIO_URL}/api/v3/catalog",
+            headers=headers,
+            json={"entityType": "space", "name": space_name},
+            timeout=10,
+        )
+
+    clean_space_views = [
+        # Space raw
+        'CREATE OR REPLACE VIEW raw.clientes AS SELECT * FROM nessie.raw.clientes AT BRANCH main',
+        'CREATE OR REPLACE VIEW raw.pedidos AS SELECT * FROM nessie.raw.pedidos AT BRANCH main',
+        'CREATE OR REPLACE VIEW raw.pagamentos AS SELECT * FROM nessie.raw.pagamentos AT BRANCH main',
+        'CREATE OR REPLACE VIEW raw.taxi_zones AS SELECT * FROM nessie.raw.taxi_zones AT BRANCH main',
+        'CREATE OR REPLACE VIEW raw.yellow_tripdata AS SELECT * FROM nessie.raw.yellow_tripdata AT BRANCH main',
+        # Space marts
+        'CREATE OR REPLACE VIEW marts.dim_clientes AS SELECT * FROM nessie.marts.dim_clientes AT BRANCH main',
+        'CREATE OR REPLACE VIEW marts.dim_zonas AS SELECT * FROM nessie.marts.dim_zonas AT BRANCH main',
+        'CREATE OR REPLACE VIEW marts.dim_tarifas AS SELECT * FROM nessie.marts.dim_tarifas AT BRANCH main',
+        'CREATE OR REPLACE VIEW marts.dim_modalidades_pagamento AS SELECT * FROM nessie.marts.dim_modalidades_pagamento AT BRANCH main',
+        'CREATE OR REPLACE VIEW marts.fato_corridas AS SELECT * FROM nessie.marts.fato_corridas AT BRANCH main',
+        'CREATE OR REPLACE VIEW marts.fato_vendas AS SELECT * FROM nessie.marts.fato_vendas AT BRANCH main',
+        'CREATE OR REPLACE VIEW marts.mart_faturamento_diario AS SELECT * FROM nessie.marts.mart_faturamento_diario AT BRANCH main',
+        'CREATE OR REPLACE VIEW marts.mart_mobilidade_diaria_zonas AS SELECT * FROM nessie.marts.mart_mobilidade_diaria_zonas AT BRANCH main',
+    ]
+    for cv in clean_space_views:
+        dremio_sql_sync(token, cv.strip(), wait_sec=30)
+    print("   • Spaces 'raw' e 'marts' configurados com sucesso no Dremio!")
+
     # Remove pg_lakehouse após ingestão inicial para deixar Dremio 100% limpo com catálogo Nessie
     cat_check = requests.get(f"{DREMIO_URL}/api/v3/catalog", headers=headers, timeout=10).json()
     for item in cat_check.get("data", []):

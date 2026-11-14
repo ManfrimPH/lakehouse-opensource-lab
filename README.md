@@ -11,7 +11,7 @@ Laboratório prático completo executando localmente em **Docker Compose** toda 
 | **0. Object Storage** | **MinIO (S3)** | Bucket S3 local (`s3://lakehouse`) onde os arquivos `.parquet` e metadados Iceberg residem | Console: `http://localhost:9101` <br> API S3: `http://localhost:9100` | `minioadmin` / `minioadmin123` |
 | **1 & 2. Tabelas ACID & Git** | **Apache Iceberg + Project Nessie** | Catálogo transacional com semântica Git (`main`, `etl_diario`, commits e merges atômicos) | UI & API: `http://localhost:19120` | *(Acesso direto)* |
 | **3. Transformação & Testes** | **dbt-core** | Engenharia de software no ELT: modelos SQL declarativos (`{{ ref }}`), linhagem e testes | Container `lakehouse_airflow` (`/opt/airflow/dbt_lakehouse`) | — |
-| **4. Motor & Semântica** | **Dremio (Apache Arrow)** | Engine colunar vetorizada em memória, Camada Semântica (`raw_layer`, `prep_layer`, `business`) e Reflections | Web UI: `http://localhost:9047` <br> Arrow Flight: `localhost:32010` | `admin` / `Admin1234!` |
+| **4. Motor & Semântica** | **Dremio (Apache Arrow)** | Engine colunar vetorizada em memória, Camada Semântica (`raw`, `marts`) e Catálogo Nessie | Web UI: `http://localhost:9047` <br> Arrow Flight: `localhost:32010` | `admin` / `Admin1234!` |
 | **5. Visualização & Cache** | **Apache Superset + Redis** | Self-Service BI sem custo por assento + SQL Lab IDE + Cache Redis sincronizado | Web UI: `http://localhost:8088` <br> Redis: `localhost:6380` | `admin` / `admin` |
 | **6. Orquestração (Maestro)** | **Apache Airflow** | Motor de **Data CI/CD**: cria branch no Nessie, roda dbt, valida testes, faz merge e limpa cache | Web UI: `http://localhost:8085` | `admin` / `admin` |
 
@@ -46,7 +46,7 @@ make demo-cicd
 
 ### 2. Mostrar o Motor Vetorizado e o Catálogo Unificado no Dremio
 - Abra o **Dremio** em `http://localhost:9047` (`admin` / `Admin1234!`).
-- Mostre a fonte oficial **`nessie`** conectada com seletor de branches (`main` / `etl_diario`) e as tabelas Apache Iceberg estruturadas em `nessie.raw` (dados de auditoria/entrada) e `nessie.marts` (fatos e dimensões analíticas com chaves MD5).
+- Mostre a fonte oficial **`nessie`** conectada com seletor de branches (`main` / `etl_diario`) e os Spaces amigáveis **`raw`** (dados brutos de auditoria) e **`marts`** (fatos, dimensões e agregações de negócio com chaves MD5) para navegação visual e consumo.
 - Execute consultas no SQL Lab com velocidade em milissegundos via Apache Arrow.
 
 ### 3. Mostrar o Data CI/CD e o Circuit Breaker no Apache Airflow
